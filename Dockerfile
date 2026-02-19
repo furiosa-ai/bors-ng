@@ -1,17 +1,14 @@
 ARG ELIXIR_VERSION=1.14.5
 ARG SOURCE_COMMIT
 
-FROM elixir:${ELIXIR_VERSION} as builder
+# Alpine-based builder: musl libc avoids QEMU x86_64 emulation instability
+# that crashes the Erlang VM on arm64 hosts building amd64 images
+FROM elixir:${ELIXIR_VERSION}-alpine AS builder
 
 ENV LANG=C.UTF-8 LC_ALL=C.UTF-8
 
-RUN apt-get update -q && apt-get --no-install-recommends install -y apt-utils ca-certificates build-essential libtool autoconf curl git
-
-RUN DEBIAN_CODENAME=$(sed -n 's/VERSION=.*(\(.*\)).*/\1/p' /etc/os-release) && \
-    curl -q https://deb.nodesource.com/gpgkey/nodesource.gpg.key | apt-key add - && \
-    echo "deb http://deb.nodesource.com/node_12.x $DEBIAN_CODENAME main" | tee /etc/apt/sources.list.d/nodesource.list && \
-    apt-get update -q && \
-    apt-get --no-install-recommends install -y nodejs
+RUN apk add --no-cache \
+    build-base libtool autoconf automake curl git nodejs npm
 
 RUN mix local.hex --force && \
     mix local.rebar --force && \
@@ -20,12 +17,11 @@ RUN mix local.hex --force && \
 WORKDIR /src
 ADD ./ /src/
 
-# Set default environment for building
 ENV ALLOW_PRIVATE_REPOS=true
 ENV MIX_ENV=prod
 
 RUN mix deps.get
-RUN cd /src/ && npm install && npm run deploy
+RUN cd /src/assets && npm install && npm run deploy
 RUN mix phx.digest
 RUN mix distillery.release --env=$MIX_ENV
 
@@ -40,9 +36,12 @@ RUN if [ -d .git ]; then \
 
 ####
 
-FROM debian:bullseye-slim
+FROM alpine:3.19
 ENV LANG=C.UTF-8 LC_ALL=C.UTF-8 LANGUAGE=C.UTF-8
-RUN apt-get update -q && apt-get --no-install-recommends install -y git-core libssl1.1 curl apt-utils ca-certificates
+
+# openssl: SSL/TLS, ncurses-libs: Erlang terminal, libgcc/libstdc++: ERTS runtime deps
+RUN apk add --no-cache \
+    bash git openssl ncurses-libs libgcc libstdc++ curl
 
 ADD ./script/docker-entrypoint /usr/local/bin/bors-ng-entrypoint
 COPY --from=builder /src/_build/prod/rel/ /app/
