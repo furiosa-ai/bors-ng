@@ -1,14 +1,16 @@
 ARG ELIXIR_VERSION=1.14.5
 ARG SOURCE_COMMIT
 
-# Alpine-based builder: musl libc avoids QEMU x86_64 emulation instability
-# that crashes the Erlang VM on arm64 hosts building amd64 images
-FROM elixir:${ELIXIR_VERSION}-alpine AS builder
+FROM elixir:${ELIXIR_VERSION} AS builder
 
 ENV LANG=C.UTF-8 LC_ALL=C.UTF-8
 
-RUN apk add --no-cache \
-    build-base libtool autoconf automake curl git nodejs npm
+RUN apt-get update -q && apt-get --no-install-recommends install -y \
+    apt-utils ca-certificates build-essential libtool autoconf curl git
+
+# Install Node.js 20.x (LTS) via nodesource
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
+    apt-get --no-install-recommends install -y nodejs
 
 RUN mix local.hex --force && \
     mix local.rebar --force && \
@@ -36,12 +38,10 @@ RUN if [ -d .git ]; then \
 
 ####
 
-FROM alpine:3.19
+FROM debian:bookworm-slim
 ENV LANG=C.UTF-8 LC_ALL=C.UTF-8 LANGUAGE=C.UTF-8
-
-# openssl: SSL/TLS, ncurses-libs: Erlang terminal, libgcc/libstdc++: ERTS runtime deps
-RUN apk add --no-cache \
-    bash git openssl ncurses-libs libgcc libstdc++ curl
+RUN apt-get update -q && apt-get --no-install-recommends install -y \
+    git-core libssl3 curl apt-utils ca-certificates
 
 ADD ./script/docker-entrypoint /usr/local/bin/bors-ng-entrypoint
 COPY --from=builder /src/_build/prod/rel/ /app/
