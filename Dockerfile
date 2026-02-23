@@ -1,17 +1,20 @@
 ARG ELIXIR_VERSION=1.14.5
 ARG SOURCE_COMMIT
 
-FROM elixir:${ELIXIR_VERSION} as builder
+FROM elixir:${ELIXIR_VERSION} AS builder
 
 ENV LANG=C.UTF-8 LC_ALL=C.UTF-8
 
-RUN apt-get update -q && apt-get --no-install-recommends install -y apt-utils ca-certificates build-essential libtool autoconf curl git
+RUN apt-get update -q && apt-get --no-install-recommends install -y \
+    apt-utils ca-certificates build-essential libtool autoconf curl git
 
-RUN DEBIAN_CODENAME=$(sed -n 's/VERSION=.*(\(.*\)).*/\1/p' /etc/os-release) && \
-    curl -q https://deb.nodesource.com/gpgkey/nodesource.gpg.key | apt-key add - && \
-    echo "deb http://deb.nodesource.com/node_12.x $DEBIAN_CODENAME main" | tee /etc/apt/sources.list.d/nodesource.list && \
-    apt-get update -q && \
-    apt-get --no-install-recommends install -y nodejs
+# Install Node.js 20.x (LTS) via nodesource
+# GPG 키로 서명 검증 후 apt repo 등록
+RUN curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key \
+    | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg && \
+    echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_20.x nodistro main" \
+    | tee /etc/apt/sources.list.d/nodesource.list && \
+    apt-get update && apt-get install -y nodejs
 
 RUN mix local.hex --force && \
     mix local.rebar --force && \
@@ -20,12 +23,11 @@ RUN mix local.hex --force && \
 WORKDIR /src
 ADD ./ /src/
 
-# Set default environment for building
 ENV ALLOW_PRIVATE_REPOS=true
 ENV MIX_ENV=prod
 
 RUN mix deps.get
-RUN cd /src/ && npm install && npm run deploy
+RUN cd /src/assets && npm install && npm run deploy
 RUN mix phx.digest
 RUN mix distillery.release --env=$MIX_ENV
 
@@ -40,9 +42,10 @@ RUN if [ -d .git ]; then \
 
 ####
 
-FROM debian:bullseye-slim
+FROM debian:bookworm-slim
 ENV LANG=C.UTF-8 LC_ALL=C.UTF-8 LANGUAGE=C.UTF-8
-RUN apt-get update -q && apt-get --no-install-recommends install -y git-core libssl1.1 curl apt-utils ca-certificates
+RUN apt-get update -q && apt-get --no-install-recommends install -y \
+    git-core libssl3 curl apt-utils ca-certificates
 
 ADD ./script/docker-entrypoint /usr/local/bin/bors-ng-entrypoint
 COPY --from=builder /src/_build/prod/rel/ /app/
