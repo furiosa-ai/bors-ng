@@ -9,8 +9,12 @@ RUN apt-get update -q && apt-get --no-install-recommends install -y \
     apt-utils ca-certificates build-essential libtool autoconf curl git
 
 # Install Node.js 20.x (LTS) via nodesource
-RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
-    apt-get --no-install-recommends install -y nodejs
+# GPG 키로 서명 검증 후 apt repo 등록
+RUN curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key \
+    | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg && \
+    echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_20.x nodistro main" \
+    | tee /etc/apt/sources.list.d/nodesource.list && \
+    apt-get update && apt-get install -y nodejs
 
 RUN mix local.hex --force && \
     mix local.rebar --force && \
